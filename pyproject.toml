@@ -23,4 +23,4 @@ requires = ["flit_core"]
 build-backend = "flit_core.buildapi"
 
 [project.scripts]
-cytmdl = "gytmdl.cli:main"
+cytmdl = "cytmdl.cli:main"

@@ -17,7 +17,7 @@ from .downloader import Downloader
 from .enums import CoverFormat, DownloadMode
 from .utils import color_text, prompt_path
 
-logger = logging.getLogger("gytmdl")
+logger = logging.getLogger("cytmdl")
 
 downloader_sig = inspect.signature(Downloader.__init__)
 
@@ -91,7 +91,7 @@ def load_config_file(
 @click.option(
     "--config-path",
     type=Path,
-    default=Path.home() / ".gytmdl" / "config.json",
+    default=Path.home() / ".cytmdl" / "config.json",
     help="Path to config file.",
 )
 @click.option(
@@ -286,7 +286,7 @@ def main(
             if Path(url).exists():
                 _urls.extend(Path(url).read_text().splitlines())
         urls = _urls
-    logger.info("Starting Gytmdl")
+    logger.info("Starting cytmdl")
     downloader = Downloader(
         output_path,
         temp_path,
