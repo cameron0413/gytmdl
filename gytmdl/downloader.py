@@ -22,6 +22,10 @@ from .constants import PREMIUM_FORMATS
 from .constants import IMAGE_FILE_EXTENSION_MAP, MP4_TAGS_MAP
 from .enums import CoverFormat, DownloadMode
 
+from mutagen.mp3 import EasyMP3
+from mutagen.id3 import ID3, APIC, error
+from mutagen.easyid3 import EasyID3
+
 
 class Downloader:
     def __init__(
@@ -43,6 +47,7 @@ class Downloader:
         exclude_tags: str = None,
         truncate: int = None,
         silent: bool = False,
+        file_type: str = "m4a",
     ):
         self.output_path = output_path
         self.temp_path = temp_path
@@ -65,6 +70,7 @@ class Downloader:
         self._set_ytdlp_options()
         self._set_exclude_tags()
         self._set_truncate()
+        self.file_type = file_type
 
     def _set_ytmusic_instance(self):
         self.ytmusic = YTMusic()
@@ -293,10 +299,10 @@ class Downloader:
         return dirty_string.strip()
 
     def get_track_temp_path(self, video_id: str) -> Path:
-        return self.temp_path / f"{video_id}_temp.m4a"
+        return self.temp_path / f"{video_id}_temp.{self.file_type}"
 
     def get_remuxed_path(self, video_id: str) -> Path:
-        return self.temp_path / f"{video_id}_remuxed.m4a"
+        return self.temp_path / f"{video_id}_remuxed.{self.file_type}"
 
     def get_cover_path(self, final_path: Path, file_extension: str) -> Path:
         return final_path.parent / ("Cover" + file_extension)
@@ -312,7 +318,7 @@ class Downloader:
             for i in final_path_file[:-1]
         ] + [
             self.get_sanitized_string(final_path_file[-1].format(**tags), False)
-            + ".m4a"
+            + "." + self.file_type
         ]
         return self.output_path.joinpath(*final_path_folder).joinpath(*final_path_file)
 
@@ -337,29 +343,18 @@ class Downloader:
     def remux(self, temp_path: Path, remuxed_path: Path):
         command = [
             self.ffmpeg_path,
-            "-loglevel",
-            "error",
-            "-i",
-            temp_path,
+            "-loglevel", "error",
+            "-i", str(temp_path),
         ]
-        if self.itag not in ("141", "140", "139"):
-            command.extend(
-                [
-                    "-f",
-                    "mp4",
-                ]
-            )
-        subprocess.run(
-            [
-                *command,
-                "-movflags",
-                "+faststart",
-                "-c",
-                "copy",
-                remuxed_path,
-            ],
-            check=True,
-        )
+
+        if self.file_type == "mp3":
+            command += ["-b:a", "192k", "-f", "mp3", "-y", str(remuxed_path)]
+        elif self.itag not in ("141", "140", "139"):
+            command += ["-f", "mp4", "-movflags", "+faststart", "-c", "copy", str(remuxed_path)]
+        else:
+            command += ["-movflags", "+faststart", "-c", "copy", str(remuxed_path)]
+
+        subprocess.run(command, check=True)
 
     @staticmethod
     @functools.lru_cache()
@@ -382,11 +377,52 @@ class Downloader:
         return IMAGE_FILE_EXTENSION_MAP.get(image_format, f".{image_format}")
 
     def apply_tags(
-        self,
-        path: Path,
-        tags: dict,
-        cover_url: str,
+            self,
+            path: Path,
+            tags: dict,
+            cover_url: str,
     ):
+        if self.file_type == "mp3":
+            # === MP3 tagging ===
+            try:
+                audio = EasyID3(path)
+            except error:
+                audio = EasyMP3(path)
+                audio.add_tags()
+
+            if "title" in tags:
+                audio["title"] = tags["title"]
+            if "artist" in tags:
+                audio["artist"] = tags["artist"]
+            if "album" in tags:
+                audio["album"] = tags["album"]
+            if "album_artist" in tags:
+                audio["albumartist"] = tags["album_artist"]
+            if "date" in tags:
+                audio["date"] = tags["date"]
+            if "track" in tags and "track_total" in tags:
+                audio["tracknumber"] = f"{tags['track']}/{tags['track_total']}"
+            elif "track" in tags:
+                audio["tracknumber"] = str(tags["track"])
+
+            audio.save()
+
+            # === MP3 cover embedding using ID3/APIC ===
+            if "cover" not in self.exclude_tags and self.cover_format != CoverFormat.RAW:
+                audio = ID3(path)
+                audio.add(
+                    APIC(
+                        encoding=3,  # 3 = UTF-8
+                        mime="image/jpeg" if self.cover_format == CoverFormat.JPG else "image/png",
+                        type=3,  # Cover (front)
+                        desc="Cover",
+                        data=self.get_url_response_bytes(cover_url),
+                    )
+                )
+                audio.save()
+            return  # Exit early; rest of the code is for MP4
+
+        # === M4A/MP4 tagging ===
         to_apply_tags = [
             tag_name for tag_name in tags.keys() if tag_name not in self.exclude_tags
         ]
@@ -406,10 +442,7 @@ class Downloader:
                     mp4_tags["trkn"][0][0] = tags[tag_name]
                 elif tag_name == "track_total":
                     mp4_tags["trkn"][0][1] = tags[tag_name]
-            if (
-                MP4_TAGS_MAP.get(tag_name) is not None
-                and tags.get(tag_name) is not None
-            ):
+            if MP4_TAGS_MAP.get(tag_name) is not None and tags.get(tag_name) is not None:
                 mp4_tags[MP4_TAGS_MAP[tag_name]] = [tags[tag_name]]
         if "cover" not in self.exclude_tags and self.cover_format != CoverFormat.RAW:
             mp4_tags["covr"] = [

@@ -224,6 +224,12 @@ def load_config_file(
     callback=load_config_file,
     help="Don't load the config file.",
 )
+@click.option(
+    "--file-type",
+    type=click.Choice(["m4a", "mp3"], case_sensitive=False),
+    default=downloader_sig.parameters["file_type"].default,
+    help="Output audio format (e.g. m4a, mp3)",
+)
 def main(
     urls: tuple[str],
     save_cover: bool,
@@ -251,6 +257,7 @@ def main(
     synced_lyrics_only: bool,
     truncate: int,
     no_config_file: bool,
+    file_type: str,
 ):
     colorama.just_fix_windows_console()
     logger.setLevel(log_level)
@@ -297,6 +304,7 @@ def main(
         template_date,
         exclude_tags,
         truncate,
+        file_type=file_type,
     )
     error_count = 0
     download_queue = []
