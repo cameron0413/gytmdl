@@ -383,7 +383,6 @@ class Downloader:
             cover_url: str,
     ):
         if self.file_type == "mp3":
-            # === MP3 tagging ===
             try:
                 audio = EasyID3(path)
             except error:
@@ -407,7 +406,6 @@ class Downloader:
 
             audio.save()
 
-            # === MP3 cover embedding using ID3/APIC ===
             if "cover" not in self.exclude_tags and self.cover_format != CoverFormat.RAW:
                 audio = ID3(path)
                 audio.add(
@@ -420,9 +418,8 @@ class Downloader:
                     )
                 )
                 audio.save()
-            return  # Exit early; rest of the code is for MP4
+            return
 
-        # === M4A/MP4 tagging ===
         to_apply_tags = [
             tag_name for tag_name in tags.keys() if tag_name not in self.exclude_tags
         ]
